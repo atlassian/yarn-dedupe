@@ -29,6 +29,47 @@ test('dedupes lockfile to max compatible version', () => {
     expect(list).toContain('Package "library" wants ^1.1.0 and could get 1.3.0, but got 1.2.0');
 });
 
+test('dedupes lockfile to max compatible version and removes orphan', () => {
+    const yarn_lock = outdent`
+    library@^1.1.0:
+      version "1.2.0"
+      resolved "https://example.net/library@^1.1.0"
+      dependencies:
+        sublibrary "^1.0.0"
+
+    library@^1.2.0:
+      version "1.2.0"
+      resolved "https://example.net/library@^1.2.0"
+
+    library@^1.3.0:
+      version "1.3.0"
+      resolved "https://example.net/library@^1.3.0"
+
+    sublibrary@^1.0.0:
+      version "1.0.0"
+      resolved "https://example.net/sublibrary@^1.0.0"
+      dependencies:
+        subsublibrary "^1.0.0"
+
+    subsublibrary@^1.0.0:
+      version "1.0.0"
+      resolved "https://example.net/subsublibrary@^1.0.0"
+    `;
+    const deduped = fixDuplicates(yarn_lock);
+    const json = lockfile.parse(deduped).object;
+
+    expect(json['library@^1.1.0']['version']).toEqual('1.3.0');
+    expect(json['library@^1.2.0']['version']).toEqual('1.3.0');
+    expect(json['library@^1.3.0']['version']).toEqual('1.3.0');
+    expect(json['sublibrary@^1.0.0']).toBeUndefined();
+    expect(json['subsublibrary@^1.0.0']).toBeUndefined();
+
+    const list = listDuplicates(yarn_lock);
+
+    expect(list).toContain('Package "library" wants ^1.2.0 and could get 1.3.0, but got 1.2.0');
+    expect(list).toContain('Package "library" wants ^1.1.0 and could get 1.3.0, but got 1.2.0');
+});
+
 test('dedupes lockfile to most common compatible version', () => {
     const yarn_lock = outdent`
     library@>=1.0.0:
@@ -122,4 +163,73 @@ test('should support the integrity field if present', () => {
 
     // We should not have made any change to the order of outputted lines (@yarnpkg/lockfile 1.0.0 had this bug)
     expect(yarn_lock).toBe(deduped);
+});
+
+test('should support circular dependencies', () => {
+    const yarn_lock = outdent`
+    library@^1.0.0:
+      version "1.0.0"
+      resolved "https://example.net/library@^1.0.0"
+      dependencies:
+        sublibrary1 "^1.0.0"
+
+    sublibrary1@^1.0.0:
+      version "1.0.0"
+      resolved "https://example.net/sublibrary1@^1.0.0"
+      dependencies:
+        sublibrary2 "^1.0.0"
+
+    sublibrary2@^1.0.0:
+      version "1.0.0"
+      resolved "https://example.net/sublibrary2@^1.0.0"
+      dependencies:
+        sublibrary1 "^1.0.0"
+    `;
+    const deduped = fixDuplicates(yarn_lock);
+    const json = lockfile.parse(deduped).object;
+
+    expect(json['library@^1.0.0']['version']).toEqual('1.0.0');
+    expect(json['sublibrary1@^1.0.0']['version']).toEqual('1.0.0');
+    expect(json['sublibrary2@^1.0.0']['version']).toEqual('1.0.0');
+});
+
+test('should support optionalDependencies', () => {
+    const yarn_lock = outdent`
+    library@^1.1.0:
+      version "1.2.0"
+      resolved "https://example.net/library@^1.1.0"
+      dependencies:
+        sublibrary "^1.0.0"
+
+    library@^1.2.0:
+      version "1.2.0"
+      resolved "https://example.net/library@^1.2.0"
+
+    library@^1.3.0:
+      version "1.3.0"
+      resolved "https://example.net/library@^1.3.0"
+
+    sublibrary@^1.0.0:
+      version "1.0.0"
+      resolved "https://example.net/sublibrary@^1.0.0"
+      optionalDependencies:
+        subsublibrary "^1.0.0"
+
+    subsublibrary@^1.0.0:
+      version "1.0.0"
+      resolved "https://example.net/subsublibrary@^1.0.0"
+    `;
+    const deduped = fixDuplicates(yarn_lock);
+    const json = lockfile.parse(deduped).object;
+
+    expect(json['library@^1.1.0']['version']).toEqual('1.3.0');
+    expect(json['library@^1.2.0']['version']).toEqual('1.3.0');
+    expect(json['library@^1.3.0']['version']).toEqual('1.3.0');
+    expect(json['sublibrary']).toBeUndefined();
+    expect(json['subsublibrary']).toBeUndefined();
+
+    const list = listDuplicates(yarn_lock);
+
+    expect(list).toContain('Package "library" wants ^1.2.0 and could get 1.3.0, but got 1.2.0');
+    expect(list).toContain('Package "library" wants ^1.1.0 and could get 1.3.0, but got 1.2.0');
 });

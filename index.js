@@ -109,6 +109,31 @@ const getDuplicatedPackages = (json, { includePackages, useMostCommon }) => {
         .filter(({ bestVersion, installedVersion }) => bestVersion !== installedVersion);
 };
 
+const getAllDependencies = pkg => Object.assign({}, pkg.optionalDependencies, pkg.dependencies);
+
+const getDirectPackages = (json, names) => {
+    const dependencies = names.reduce((acc, name) => {
+        const allDependencies = getAllDependencies(json[name]);
+        Object.keys(allDependencies).forEach(packageName => {
+            acc[`${packageName}@${allDependencies[packageName]}`] = true;
+        });
+        return acc;
+    }, {});
+
+    return names.filter(name => !dependencies[name]);
+};
+
+const updateConnectedMap = (connected, json, name) => {
+    if (connected[name]) return; // Handle circular dependencies
+    connected[name] = true;
+
+    const allDependencies = getAllDependencies(json[name]);
+    Object.keys(allDependencies).forEach(packageName => {
+        const requestedVersion = allDependencies[packageName];
+        updateConnectedMap(connected, json, `${packageName}@${requestedVersion}`);
+    });
+};
+
 module.exports.listDuplicates = (
     yarnLock,
     { includePackages = [], useMostCommon = false } = {}
@@ -129,12 +154,23 @@ module.exports.listDuplicates = (
 
 module.exports.fixDuplicates = (yarnLock, { includePackages = [], useMostCommon = false } = {}) => {
     const json = parseYarnLock(yarnLock);
+    const names = Object.keys(json);
+    // Remember packages specified in package.json directly
+    const directPackages = getDirectPackages(json, names);
 
+    // Change resolved verions
     getDuplicatedPackages(json, { includePackages, useMostCommon }).forEach(
         ({ bestVersion, name, versions, requestedVersion }) => {
             json[`${name}@${requestedVersion}`] = versions[bestVersion].pkg;
         }
     );
+
+    // Remove orphan packages by a connected map
+    const connected = {};
+    directPackages.forEach(name => updateConnectedMap(connected, json, name));
+    names.forEach(name => {
+        if (!connected[name]) delete json[name];
+    });
 
     return lockfile.stringify(json);
 };
