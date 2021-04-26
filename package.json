@@ -32,7 +32,7 @@
   "dependencies": {
     "@yarnpkg/lockfile": "^1.1.0",
     "commander": "^6.1.0",
-    "semver": "^7.3.2"
+    "semver": "^7.3.5"
   },
   "devDependencies": {
     "eslint": "^7.12.0",
